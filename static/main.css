@@ -16,3 +16,42 @@ body {
 *::-webkit-scrollbar {
     display: none;
 }
+
+button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    appearance: none;
+    border: 0;
+    background-color: transparent;
+    color: white;
+    border-radius: 1rem;
+    padding: 0.5rem 1.5rem;
+}
+
+button:hover {
+    cursor: pointer;
+    color: black;
+    background-color: hsl(249, 95%, 68%);
+}
+
+button.footer-action {
+    background-color: hsl(321, 95%, 68%);
+}
+
+button.selected {
+    background-color: hsl(249, 95%, 68%);
+}
+
+button.completed {
+    background-color: green;
+}
+
+button.debug {
+    background-color: purple;
+}
+
+button.aside-button {
+    justify-content: space-between;
+    padding-inline: 0.5rem;
+}

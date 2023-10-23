@@ -1,23 +1,44 @@
-const MAP_TOKEN_REGEX = /\[Map\d+\]/;
-const CHARACTER_TOKEN_REGEX = /^[A-Z?]+:/;
-const UNKNOWN_CHARACTER_TOKEN = "__UNKNOWN";
+import { _log } from "./log";
+import { CHARACTER_TOKEN_REGEX, MAP_TOKEN_REGEX, UNKNOWN_CHARACTER_TOKEN, CHARACTER_NAME_I18N_ID } from "$lib/consts";
+import type { IntlObject, ParserState } from "./types";
 
-export type IntlObject = {
-    name: string,
-    characters: IntlCharacter[],
-};
+export const compileTexts = (intl: IntlObject[], topLog: string): string[] => {
+    const texts: string[] = [];
 
-export type IntlCharacter = {
-    name: string,
-    lines: IntlLine[],
-};
+    const sortedIntl = intl
+        .map(map => ({
+            mapName: map.name,
+            mapLines: map.characters
+                .flatMap(char => char.lines.filter(l => l.id !== CHARACTER_NAME_I18N_ID).map(line => {
+                    const namei18NLine = char.lines.find(l => l.id === CHARACTER_NAME_I18N_ID);
 
-export type IntlLine = {
-    id: number,
-    previousText: string,
-    text: string,
-    translation?: string,
-};
+                    const separator = line.text.startsWith('\\c') || line.text.startsWith('\\ts') ? "" : " ";
+                    const name = char.name !== UNKNOWN_CHARACTER_TOKEN ? `${char.name}${separator}` : '';
+                    const i18nName = char.name !== UNKNOWN_CHARACTER_TOKEN ? `${namei18NLine?.translation ?? '[char not translated]'}${separator}` : '';
+
+                    return ({
+                        id: line.id,
+                        line: `${name}${line.text}`,
+                        translation: `${i18nName}${line.text}`,
+                    });
+                }))
+                .sort((a, b) => a.id - b.id)
+        }));
+
+    texts.push(`# Compiled strings - ${topLog}`);
+    texts.push(`# This file has been generated automatically.`);
+
+    sortedIntl.forEach(map => {
+        texts.push(map.mapName);
+        map.mapLines.forEach(line => {
+            texts.push(line.line)
+            texts.push(line.translation)
+        })
+    });
+
+    _log(`[PARSER] Compiled ${texts.length} lines`, texts);
+    return texts;
+}
 
 const parseIntlDraftFile = async (reader: FileReader, res: any, rej: any) => {
     try {
@@ -26,7 +47,6 @@ const parseIntlDraftFile = async (reader: FileReader, res: any, rej: any) => {
         if (!result) return rej("Invalid JSON file.");
 
         const intlObject = JSON.parse(result);
-        console.log({ result, intlObject })
         return res(intlObject);
     } catch (err) {
         rej(err);
@@ -34,93 +54,99 @@ const parseIntlDraftFile = async (reader: FileReader, res: any, rej: any) => {
 }
 
 const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
-    const config = {
+    const state: ParserState = {
         currentMap: "",
         currentCharacter: "",
+        previousLine: "",
     };
 
     const textAsArray = reader.result?.toString().split('\r\n');
     if (textAsArray === undefined) return rej("Invalid file.");
 
     try {
-        const intlObject: IntlObject[] | undefined = textAsArray.reduce((acc, line, index) => {
-            // ignore zone
+        const intlObject: IntlObject[] | undefined = textAsArray.reduce((acc, rawLine, index) => {
+            const line = rawLine.trim().replaceAll('  ', ' ');
+            const prevLine = index === 0 ? "" : textAsArray[index - 1].trim().replaceAll('  ', ' ');
+
+            // ignore the first few comments.
             if (line.startsWith('#')) return acc;
 
-            // map zone
+            // translation file is working on a duplicate-then-translate line system.
+            if (line === prevLine) return acc;
+
+            // detect [Map] segments 
             const mapName = line.match(MAP_TOKEN_REGEX);
             if (mapName) {
-                config.currentMap = mapName[0];
+                state.currentMap = mapName[0];
                 return [...acc, {
                     name: line,
                     characters: []
                 }]
             }
 
-            // character zone
+            // detect character zone
             const characterName = line.match(CHARACTER_TOKEN_REGEX);
             if (characterName) {
-                config.currentCharacter = characterName[0];
-                const currentMapIndex = acc.findIndex(maps => maps.name === config.currentMap);
-                const characterIndex = acc[currentMapIndex].characters.findIndex(character => character.name === config.currentCharacter);
-                const text = line.split(CHARACTER_TOKEN_REGEX)[1];
+                state.currentCharacter = characterName[0];
+                const currentMapIndex = acc.findIndex(maps => maps.name === state.currentMap);
+                const characterIndex = acc[currentMapIndex].characters.findIndex(character => character.name === state.currentCharacter);
+                const text = line.split(CHARACTER_TOKEN_REGEX)[1].trim();
 
                 if (characterIndex !== -1) {
-                    acc[currentMapIndex].characters[characterIndex].lines = [
-                        ...acc[currentMapIndex].characters[characterIndex].lines,
-                        {
-                            id: index,
-                            previousText: acc[currentMapIndex].characters[characterIndex].lines.at(-1)?.text ?? "",
-                            text
-                        }
-                    ]
+                    acc[currentMapIndex].characters[characterIndex].lines.push({
+                        id: index,
+                        previousText: acc[currentMapIndex].characters[characterIndex].lines.at(-1)?.text ?? "",
+                        text
+                    });
                 } else {
-                    acc[currentMapIndex].characters = [
-                        ...acc[currentMapIndex].characters,
-                        {
-                            name: config.currentCharacter,
-                            lines: [{
-                                id: index * 10_000,
-                                previousText: "",
-                                text: config.currentCharacter
-                            }]
-                        }
-                    ]
+                    acc[currentMapIndex].characters.push({
+                        name: state.currentCharacter,
+                        lines: [{
+                            id: CHARACTER_NAME_I18N_ID,
+                            previousText: "",
+                            text: state.currentCharacter
+                        }, {
+                            id: index,
+                            previousText: state.currentCharacter,
+                            text
+                        }]
+                    });
                 }
 
+                state.previousLine = line;
                 return acc;
             }
 
-            // standalone line zone
+            // not a map & no character detected : either a follow-up line or a standalone one
             if (!mapName && !characterName) {
-                const currentMapIndex = acc.findIndex(maps => maps.name === config.currentMap);
+                const currentMapIndex = acc.findIndex(maps => maps.name === state.currentMap);
                 const characterIndex = acc[currentMapIndex].characters.findIndex(character => character.name === UNKNOWN_CHARACTER_TOKEN);
 
                 if (characterIndex !== -1) {
-                    acc[currentMapIndex].characters[characterIndex].lines = [
-                        ...acc[currentMapIndex].characters[characterIndex].lines,
-                        {
-                            id: index,
-                            previousText: acc[currentMapIndex].characters[characterIndex].lines.at(-1)?.text ?? "",
-                            text: line,
-                        }
-                    ]
+                    acc[currentMapIndex].characters[characterIndex].lines.push({
+                        id: index,
+                        previousText: prevLine,
+                        text: line,
+                    });
                 } else {
-                    acc[currentMapIndex].characters = [
-                        ...acc[currentMapIndex].characters,
-                        {
-                            name: UNKNOWN_CHARACTER_TOKEN,
-                            lines: []
-                        }
-                    ]
+                    acc[currentMapIndex].characters.push({
+                        name: UNKNOWN_CHARACTER_TOKEN,
+                        lines: [{
+                            id: index,
+                            previousText: state.currentCharacter,
+                            text: line
+                        }]
+                    });
                 }
 
+                state.previousLine = line;
                 return acc;
             }
 
             return acc;
         }, [] as IntlObject[]);
 
+        _log(`[PARSER] Parsed ${textAsArray.length} lines`, textAsArray);
         res(intlObject ?? []);
     } catch (err) {
         rej(err);
@@ -131,7 +157,6 @@ export const parseIntlFile = async (file: File | null | undefined) => {
     if (!file) return;
 
     const reader = new FileReader();
-    console.log(file);
 
     const promise: Promise<IntlObject[]> = new Promise((res, rej) => {
         if (file.name.endsWith('.txt')) {

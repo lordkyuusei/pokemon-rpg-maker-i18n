@@ -1,5 +1,10 @@
 <script lang="ts">
-	import type { IntlCharacter, IntlLine, IntlObject } from '$lib/parser';
+	import { browser } from '$app/environment';
+
+	import { compileTexts } from '$lib/parser';
+	import { UNKNOWN_CHARACTER_TOKEN } from '$lib/consts';
+	import { status, db, saveinDb } from '$lib/indexeddb';
+	import type { IntlCharacter, IntlLine, IntlObject } from '$lib/types';
 
 	export let intl: IntlObject[];
 
@@ -10,12 +15,12 @@
 	const getFileName = (lang: string, time = new Date()) =>
 		`INTL_Rejuvenation-${time.getDate()}${time.getMonth()}${time.getFullYear()}_${lang}`;
 
-	const saveDraft = () => {
-		const file = new Blob([JSON.stringify(intl)], { type: 'json' });
+	const saveDraft = (content: any, format: string) => {
+		const file = new Blob([content], { type: format });
 		const link = document.createElement('a');
 		const url = URL.createObjectURL(file);
 		link.href = url;
-		link.download = getFileName(currentLang) + '.json';
+		link.download = format === 'txt' ? 'intl' : getFileName(currentLang) + `.${format}`;
 		document.body.append(link);
 		link.click();
 		document.body.removeChild(link);
@@ -23,26 +28,43 @@
 
 	const saveTranslation = (newValue: string, line: IntlLine) => {
 		const mapIndex = intl.findIndex((map) => map.name === currentTab);
-		const charIndex = intl[mapIndex].characters.findIndex((char) => char.name === currentChar);
-		const lineIndex = intl[mapIndex].characters[charIndex].lines.findIndex((l) => l.id === line.id);
+		const charIndex = intl[mapIndex].characters.findIndex(
+			(char: IntlCharacter) => char.name === currentChar
+		);
+		const lineIndex = intl[mapIndex].characters[charIndex].lines.findIndex(
+			(l: IntlLine) => l.id === line.id
+		);
 		intl[mapIndex].characters[charIndex].lines[lineIndex].translation = newValue;
 		intl = [...intl];
+	};
+
+	const saveDraftBrowserDb = () => {
+		if (browser) {
+			saveinDb(intl, $db);
+		}
+	};
+
+	const saveFinal = async () => {
+		const file = await new Promise<string[]>((res, rej) =>
+			res(compileTexts(intl, getFileName('fr')))
+		);
+		return saveDraft(file.join('\r\n'), 'txt');
 	};
 
 	$: tabs = intl.map((map) => map.name);
 	$: chars = intl.find((map) => map.name === currentTab)?.characters ?? [];
 	$: lines = intl
 		.find((map) => map.name === currentTab)
-		?.characters.find((char) => char.name === currentChar)?.lines;
+		?.characters.find((char: IntlCharacter) => char.name === currentChar)?.lines;
 
 	$: allTranslations = intl.flatMap((maps) =>
-		maps.characters.flatMap((chars) => chars.lines.map((line) => line.translation))
+		maps.characters.flatMap((char: IntlCharacter) => char.lines.map((line) => line.translation))
 	);
 
 	$: totalCompletion = (
 		(allTranslations.filter((x) => x).length / allTranslations.length) *
 		100
-	).toFixed(1);
+	).toFixed(3);
 </script>
 
 <div id="dashboard">
@@ -71,9 +93,23 @@
 		{/each}
 	</aside>
 	<div id="lines">
+		{#if currentChar === UNKNOWN_CHARACTER_TOKEN}
+			<small
+				>The parser wasn't able to deduce whom those lines belong to, so we show the previous line
+				in the source for context.</small
+			><small
+				>It shouldn't be too much of a problem for translation ; however you can still take a look
+				at the intl.txt source you provided for more info.</small
+			>
+		{/if}
 		{#if lines && lines.length > 0}
 			{#each lines as line (line.id)}
-				<label for={`${line.id}`}>{line.text}</label>
+				<label
+					class:show-previous={currentChar === UNKNOWN_CHARACTER_TOKEN}
+					class="{line.previousText?.length <= 90 ? 'small' : 'large'}-spacing"
+					data-previous={line.previousText}
+					for={`${line.id}`}>{line.text}</label
+				>
 				<input
 					name={`${line.id}`}
 					bind:value={line.translation}
@@ -88,8 +124,13 @@
 		</span>
 		<span>
 			<button class="debug" on:click={() => console.log(intl)}>[debug] print INTL</button>
-			<button class="selected" on:click={() => saveDraft()}>Save Draft ({currentLang}.json)</button>
-			<button class="selected" on:click={() => saveDraft()}
+			<button class="selected" on:click={() => saveDraftBrowserDb()}
+				>Save Draft in your browser</button
+			>
+			<button class="selected" on:click={() => saveDraft(JSON.stringify(intl), 'json')}
+				>Save Draft ({currentLang}.json)</button
+			>
+			<button class="selected" on:click={() => saveFinal()}
 				>Compile texts ({currentLang}.txt)</button
 			>
 		</span>
@@ -102,41 +143,6 @@
 		grid-template: 'header header' 5% 'aside div' 88% 'aside footer' auto / 15svw 85svw;
 
 		height: 100%;
-	}
-
-	button {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		appearance: none;
-		border: 0;
-		background-color: transparent;
-		color: white;
-		border-radius: 1rem;
-		padding: 0.75rem 1.5rem;
-
-		&:hover {
-			cursor: pointer;
-			color: black;
-			background-color: hsl(249, 95%, 68%);
-		}
-
-		&.selected {
-			background-color: hsl(249, 95%, 68%);
-		}
-
-		&.completed {
-			background-color: green;
-		}
-
-		&.debug {
-			background-color: purple;
-		}
-	}
-
-	button.aside-button {
-		justify-content: space-between;
-		padding-inline: 0.5rem;
 	}
 
 	header,
@@ -176,7 +182,24 @@
 	}
 
 	#lines label {
-		overflow-y: auto;
+		position: relative;
+	}
+
+	#lines label.show-previous::before {
+		position: absolute;
+		content: attr(data-previous);
+		height: 100%;
+		width: 100%;
+		color: rgba(255, 255, 255, 0.5);
+		font-size: 0.75rem;
+	}
+
+	#lines label.show-previous.small-spacing::before {
+		top: -1rem;
+	}
+
+	#lines label.show-previous.large-spacing::before {
+		top: -2rem;
 	}
 
 	#lines input {
