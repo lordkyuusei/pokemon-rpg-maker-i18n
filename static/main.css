@@ -1,0 +1,18 @@
+:root {
+    --bg-1: hsl(206, 10%, 33%);
+    --bg-2: hsl(206, 10%, 23%);
+    --bg-3: hsl(206, 10%, 13%);
+    --bg-4: hsl(206, 10%, 3%);
+}
+
+body {
+    font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    color: hsl(0, 0%, 96%);
+}
+
+*::-webkit-scrollbar {
+    display: none;
+}
