@@ -95,7 +95,7 @@ const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
                 if (characterIndex !== -1) {
                     acc[currentMapIndex].characters[characterIndex].lines.push({
                         id: index,
-                        previousText: acc[currentMapIndex].characters[characterIndex].lines.at(-1)?.text ?? "",
+                        previousText: prevLine,
                         text
                     });
                 } else {
@@ -107,7 +107,7 @@ const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
                             text: state.currentCharacter
                         }, {
                             id: index,
-                            previousText: state.currentCharacter,
+                            previousText: "",
                             text
                         }]
                     });

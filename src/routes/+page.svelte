@@ -17,13 +17,9 @@
 	$: statusMessage = mapStatusToMessage.find((stm) => stm.status === $status)?.message;
 
 	onMount(() => {
-		status.subscribe((value) => {
-			if (value === 'first-run') {
-				projectFile = new Promise<IntlObject[] | undefined>((res, _) => findInDb($db, res));
-			}
+		initializeDb().then((_) => {
+			projectFile = new Promise<IntlObject[] | undefined>((res, _) => findInDb($db, res));
 		});
-
-		initializeDb();
 	});
 </script>
 

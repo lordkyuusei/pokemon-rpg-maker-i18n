@@ -6,33 +6,38 @@ import { _err, _log } from "./log";
 export const status: Writable<Status> = writable();
 export const db: Writable<IDBDatabase> = writable();
 
-const resetStatus = () => setTimeout(() => status.set('idle'), 5000);
+const resetStatus = () => setTimeout(() => status.set('idle'), 3000);
 
 export const initializeDb = () => {
-    const request = window.indexedDB.open(BROWSER_DATABASE_NAME);
+    return new Promise((res, rej) => {
+        const request = window.indexedDB.open(BROWSER_DATABASE_NAME);
 
-    request.onerror = (errEvent) => {
-        status.set('error');
-        _err("[INDEXEDDB] Error", errEvent)
+        request.onerror = (errEvent) => {
+            status.set('error');
+            _err("[INDEXEDDB] Error", errEvent)
 
-        resetStatus();
-    }
+            resetStatus();
+            rej(false);
+        }
 
-    request.onsuccess = (successEvent) => {
-        db.set((successEvent.target as IDBOpenDBRequest).result);
-        _log("[INDEXEDDB] Success", successEvent)
+        request.onsuccess = (successEvent) => {
+            db.set((successEvent.target as IDBOpenDBRequest).result);
+            _log("[INDEXEDDB] Success", successEvent)
 
-        resetStatus();
-    };
+            resetStatus();
+            res(true);
+        };
 
-    request.onupgradeneeded = (upgradeEvent) => {
-        const db = (upgradeEvent.target as IDBOpenDBRequest).result;
-        db.createObjectStore(BROWSER_DATABASE_NAME, { keyPath: "game" });
+        request.onupgradeneeded = (upgradeEvent) => {
+            status.set('first-run');
 
-        status.set('first-run');
-        _log("[INDEXEDDB] Upgrade Needed", { upgradeEvent })
-        resetStatus();
-    }
+            const db = (upgradeEvent.target as IDBOpenDBRequest).result;
+            db.createObjectStore(BROWSER_DATABASE_NAME, { keyPath: "game" });
+
+            _log("[INDEXEDDB] Upgrade Needed", { upgradeEvent })
+            resetStatus();
+        }
+    })
 }
 
 export const findInDb = (db: IDBDatabase, resolver: (value: IntlObject[] | PromiseLike<IntlObject[] | undefined> | undefined) => void) => {

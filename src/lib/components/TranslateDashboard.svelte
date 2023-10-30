@@ -105,11 +105,12 @@
 		{#if lines && lines.length > 0}
 			{#each lines as line (line.id)}
 				<label
-					class:show-previous={currentChar === UNKNOWN_CHARACTER_TOKEN}
-					class="{line.previousText?.length <= 90 ? 'small' : 'large'}-spacing"
+					class="show-previous {line.previousText?.length <= 90 ? 'small' : 'large'}-spacing"
 					data-previous={line.previousText}
-					for={`${line.id}`}>{line.text}</label
-				>
+					for={`${line.id}`}
+					title={line.previousText}
+					>{line.text}
+				</label>
 				<input
 					name={`${line.id}`}
 					bind:value={line.translation}
