@@ -49,15 +49,17 @@ export const findInDb = (db: IDBDatabase, resolver: (value: IntlObject[] | Promi
     query.onsuccess = (event) => {
         const { result }: IDBRequest<IntlDb> = event.target as IDBRequest;
         if (!result) resolver(undefined);
+        else {
+            resetStatus();
+            _log('[INDEXEDDB] Existing value found', result);
 
-        resetStatus();
-        _log('[INDEXEDDB] Existing value found', { game: result.game });
+            resolver(result.intl);
+        }
 
-        resolver(result.intl);
     };
 
     query.onerror = (event) => {
-        _err('[INDEXEDDB] Error loading values', { event });
+        _err('[INDEXEDDB] Error loading values', event);
         status.set('error');
         resetStatus();
     };
@@ -104,6 +106,5 @@ export const deleteDatabase = (db: IDBDatabase) => {
 
     const objStore = transaction.objectStore(BROWSER_DATABASE_NAME);
 
-    objStore.delete("game");
     objStore.delete("Rejuv");
 }

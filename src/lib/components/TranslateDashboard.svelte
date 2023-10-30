@@ -45,10 +45,19 @@
 	};
 
 	const saveFinal = async () => {
-		const file = await new Promise<string[]>((res, rej) =>
+		const file = await new Promise<string[]>((res, _) =>
 			res(compileTexts(intl, getFileName('fr')))
 		);
 		return saveDraft(file.join('\r\n'), 'txt');
+	};
+
+	const selectTab = (tab: string) => {
+		if (browser) {
+			currentTab = `[${tab}]`;
+			currentChar = chars[0].name;
+			const button = document.getElementById(`[${tab}]`);
+			if (button) button.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+		}
 	};
 
 	$: tabs = intl.map((map) => map.name);
@@ -69,9 +78,11 @@
 
 <div id="dashboard">
 	<header>
+		<input on:focusout={(e) => selectTab(e.currentTarget.value)} />
 		{#each tabs as tab (tab)}
 			<button
 				class="header-button"
+				id={tab}
 				class:selected={currentTab === tab}
 				on:click={() => (currentTab = tab)}>{tab}</button
 			>
@@ -154,9 +165,15 @@
 	}
 
 	header {
+		align-items: center;
 		grid-area: header;
 		overflow-x: auto;
 		background-color: var(--bg-2);
+	}
+
+	header > input {
+		position: sticky;
+		left: 0;
 	}
 
 	aside {
@@ -203,7 +220,7 @@
 		top: -2rem;
 	}
 
-	#lines input {
+	input {
 		height: 2rem;
 		border: 1px solid var(--bg-2);
 		border-radius: 0.25rem;

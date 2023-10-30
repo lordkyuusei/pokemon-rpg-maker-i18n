@@ -32,7 +32,7 @@ export type IntlLine = {
 };
 
 export type ParserState = {
-    currentMap: string,
+    currentSection: string,
     currentCharacter: string,
     previousLine: string,
 };

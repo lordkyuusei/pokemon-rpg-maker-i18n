@@ -7,19 +7,19 @@ export const compileTexts = (intl: IntlObject[], topLog: string): string[] => {
 
     const sortedIntl = intl
         .map(map => ({
-            mapName: map.name,
+            sectionName: map.name,
             mapLines: map.characters
                 .flatMap(char => char.lines.filter(l => l.id !== CHARACTER_NAME_I18N_ID).map(line => {
                     const namei18NLine = char.lines.find(l => l.id === CHARACTER_NAME_I18N_ID);
 
                     const separator = line.text.startsWith('\\c') || line.text.startsWith('\\ts') ? "" : " ";
                     const name = char.name !== UNKNOWN_CHARACTER_TOKEN ? `${char.name}${separator}` : '';
-                    const i18nName = char.name !== UNKNOWN_CHARACTER_TOKEN ? `${namei18NLine?.translation ?? '[char not translated]'}${separator}` : '';
+                    const i18nName = char.name !== UNKNOWN_CHARACTER_TOKEN ? `${namei18NLine?.translation ?? char.name}${separator}` : '';
 
                     return ({
                         id: line.id,
                         line: `${name}${line.text}`,
-                        translation: `${i18nName}${line.text}`,
+                        translation: `${i18nName}${line.translation}`,
                     });
                 }))
                 .sort((a, b) => a.id - b.id)
@@ -29,10 +29,14 @@ export const compileTexts = (intl: IntlObject[], topLog: string): string[] => {
     texts.push(`# This file has been generated automatically.`);
 
     sortedIntl.forEach(map => {
-        texts.push(map.mapName);
+        texts.push(map.sectionName);
         map.mapLines.forEach(line => {
             texts.push(line.line)
-            texts.push(line.translation)
+
+            // special condition
+            if (Number.isNaN(Number(line.line))) {
+                texts.push(line.translation)
+            }
         })
     });
 
@@ -55,7 +59,7 @@ const parseIntlDraftFile = async (reader: FileReader, res: any, rej: any) => {
 
 const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
     const state: ParserState = {
-        currentMap: "",
+        currentSection: "",
         currentCharacter: "",
         previousLine: "",
     };
@@ -66,21 +70,23 @@ const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
     try {
         const intlObject: IntlObject[] | undefined = textAsArray.reduce((acc, rawLine, index) => {
             const line = rawLine.trim().replaceAll('  ', ' ');
+
+            // ignore the first few comments, and the standalone numbers.
+            if (line.startsWith('#') || Number.isNaN(Number(line)) === false) return acc;
+
             const prevLine = index === 0 ? "" : textAsArray[index - 1].trim().replaceAll('  ', ' ');
 
-            // ignore the first few comments.
-            if (line.startsWith('#')) return acc;
-
-            // translation file is working on a duplicate-then-translate line system.
+            // translation file source has each line duplicated & we replace the 2nd one only.
             if (line === prevLine) return acc;
 
-            // detect [Map] segments 
-            const mapName = line.match(MAP_TOKEN_REGEX);
-            if (mapName) {
-                state.currentMap = mapName[0];
+            // detect [Map] and [(number)] segments 
+            const sectionName = line.match(MAP_TOKEN_REGEX);
+            if (sectionName) {
+                state.currentSection = sectionName[0];
+
                 return [...acc, {
                     name: line,
-                    characters: []
+                    characters: [],
                 }]
             }
 
@@ -88,18 +94,18 @@ const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
             const characterName = line.match(CHARACTER_TOKEN_REGEX);
             if (characterName) {
                 state.currentCharacter = characterName[0];
-                const currentMapIndex = acc.findIndex(maps => maps.name === state.currentMap);
-                const characterIndex = acc[currentMapIndex].characters.findIndex(character => character.name === state.currentCharacter);
+                const currentSectionIndex = acc.findIndex(maps => maps.name === state.currentSection);
+                const charIndex = acc[currentSectionIndex].characters.findIndex(character => character.name === state.currentCharacter);
                 const text = line.split(CHARACTER_TOKEN_REGEX)[1].trim();
 
-                if (characterIndex !== -1) {
-                    acc[currentMapIndex].characters[characterIndex].lines.push({
+                if (charIndex !== -1) {
+                    acc[currentSectionIndex].characters[charIndex].lines.push({
                         id: index,
                         previousText: prevLine,
                         text
                     });
                 } else {
-                    acc[currentMapIndex].characters.push({
+                    acc[currentSectionIndex].characters.push({
                         name: state.currentCharacter,
                         lines: [{
                             id: CHARACTER_NAME_I18N_ID,
@@ -117,19 +123,19 @@ const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
                 return acc;
             }
 
-            // not a map & no character detected : either a follow-up line or a standalone one
-            if (!mapName && !characterName) {
-                const currentMapIndex = acc.findIndex(maps => maps.name === state.currentMap);
-                const characterIndex = acc[currentMapIndex].characters.findIndex(character => character.name === UNKNOWN_CHARACTER_TOKEN);
+            // no character detected : either a follow-up line or a standalone one
+            else {
+                const currIndex = acc.findIndex(maps => maps.name === state.currentSection);
+                const charIndex = acc[currIndex].characters.findIndex(char => char.name === UNKNOWN_CHARACTER_TOKEN);
 
-                if (characterIndex !== -1) {
-                    acc[currentMapIndex].characters[characterIndex].lines.push({
+                if (charIndex !== -1) {
+                    acc[currIndex].characters[charIndex].lines.push({
                         id: index,
                         previousText: prevLine,
                         text: line,
                     });
                 } else {
-                    acc[currentMapIndex].characters.push({
+                    acc[currIndex].characters.push({
                         name: UNKNOWN_CHARACTER_TOKEN,
                         lines: [{
                             id: index,
@@ -138,12 +144,9 @@ const parseIntlNewFile = async (reader: FileReader, res: any, rej: any) => {
                         }]
                     });
                 }
-
-                state.previousLine = line;
                 return acc;
             }
 
-            return acc;
         }, [] as IntlObject[]);
 
         _log(`[PARSER] Parsed ${textAsArray.length} lines`, textAsArray);
